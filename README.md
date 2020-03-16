@@ -1,51 +1,63 @@
-# BlenderProc
+# BlenderProc4BOP
 
-![](readme.png)
+Procedural Annotated Data Generation using the [Blender](https://www.blender.org/) API.
 
-A procedural blender pipeline for image generation for deep learning.
+BlenderProc4BOP extends [DLR-RM/BlenderProc](https://github.com/DLR-RM/BlenderProc) with interfaces to the [BOP datasets](https://bop.felk.cvut.cz/datasets/) and provides code to generate photo-realistic training data for Object Instance Segmentation and Pose Estimation methods. 
 
-Check out our arXiv paper (we are updating it from time to time): https://arxiv.org/abs/1911.01911
+Note: This library is under active development. We are open for new contributors and happy to accept pull requests e.g. defining new modules.
+
+The corresponding arxiv paper: https://arxiv.org/abs/1911.01911
+
+<!-- 
+Citation: 
+```
+@article{blenderproc2019,
+	title={BlenderProc},
+	author={Denninger, Maximilian and Sundermeyer, Martin and Winkelbauer, Dominik and Zidan, Youssef  and Olefir, Dmitry and Elbadrawy, Mohamad and Lodhi, Ahsan and Katam, Harinandan},
+	journal={arXiv preprint arXiv:1911.01911},
+	year={2019}
+}
+``` -->
+<img src=examples/bop_scene_replication/icbin.png width="240" height="180"> <img src=examples/bop_scene_replication/tless.png width="240" height="180"> <img src=examples/bop_sampling/tless_sample.png width="240" height="180">
+
+![](examples/suncg_basic/output-summary.png)
 
 ## General
 
-In general, one run of the pipeline first loads or constructs a 3D scene, then sets some camera positions inside this scene and renders different types of images (rgb, depth, normals etc.) for each of them.
-The blender pipeline consists of different modules, where each of them performs one step in the described process.
-The modules are selected, ordered and configured via a .yaml file.
- 
-To run the blender pipeline one just has to call the `run.py` script in the main directory together with the desired config file and any additional arguments.
+Please refer to [DLR-RM/BlenderProc](https://github.com/DLR-RM/BlenderProc) for a general introduction on how to set up a data generation pipeline with a yaml config.
 
-```
-python run.py config.yaml <additional arguments>
-```
+Using this package you can 
+- synthetically recreate BOP datasets
+- sample and render new object poses using a variety of samplers
+- use collision detection and physics to generate realistic object poses
+- place objects in synthetic scenes like SunCG or real scenes like Replica
 
-This runs all modules specified in the config file in a step-by-step fashion in the configured order.
+Render normals, RGB, stereo and depth. Extract class and instance segmentation labels and pose annotations. All generated data and labels are saved in compressed hdf5 files or automatically converted into COCO annotations.
 
-## Functionality
+You can parametrize a variety of loaders and samplers for  
+- object poses
+- lights
+- cameras
+- materials
 
-The following modules are already implemented and ready to use:
+Because of the modularity of this package and the sole dependency on the Blender API, it is very simple to insert your own module. Also, any new feature introduced in Blender can be utilized here.
 
-* Loading: *.obj, SunCG, Replica scenes.
-* Lighting: Set, sample lights, automatic lighting of SunCG scenes.
-* Cameras: set, sample or load camera poses from file.
-* Rendering: RGB, depth, normal and segmentation images.
-* Merging: .hdf5 containers.
+## Usage with BOP
 
-For advanced usage which is not covered by these modules, own modules can easily be implemented.
+First make sure that you have downloaded a [BOP dataset](https://bop.felk.cvut.cz/datasets/) in the original folder structure. Also please clone the [BOP toolkit](https://github.com/thodan/bop_toolkit).
 
-## Examples
+We provide two example configs that interface with the BOP datasets:
 
-* [Basic scene](examples/basic/): Basic example 
-* [Simple SUNCG scene](examples/suncg_basic/): Loads a SUNCG scene and camera positions from file before rendering color, normal, segmentation and a depth images.
-* [SUNCG scene with camera sampling](examples/suncg_with_cam_sampling/): Loads a SUNCG scene and automatically samples camera poses in every room before rendering color, normal, segmentation and a depth images.
-* [Replica dataset](examples/replica-dataset): Load a replica room, sample camera poses and render normal images.
-* [COCO annotations](examples/coco_annotations): Write to a .json file containing COCO annotations for the objects in the scene.
+* [bop_scene_replication](examples/bop_scene_replication/README.md): Replicates whole scenes (object poses, camera intrinsics and extrinsics) of BOP datasets
+* [bop_sampling](examples/bop_sampling/README.md):
+ Loads BOP objects and samples object, camera and light poses
 
-... And much more!
+## Customize and write new modules
 
-## First step
+You can create realistic synthetic data and labels by combining and parametrizing existing modules. Use the documented [examples](examples/README.md) to build your own config.
 
-Now head on to the [examples](examples) and check the README there: get some basic understanding of the config files, start exploring our examples and get a gist about writing yor own modules!
+Parametrize lighting.LightSampler, camera.CameraSampler, or object.ObjectPoseSampler with existing sampling functions (e.g. uniform shell, sphere or cube). Use loaders like lighting.LightLoader and camera.CameraLoader to load poses and other parameters from a file or from the config directly. Sample object poses using physics like in [examples/physics_positioning](examples/physics_positioning). Sample objects in synthetic or real scene environments like SunCG or Replica.
 
-## Change log
+Besides parametrizing existing modules, you can also create your own modules (see [Writing Modules](https://github.com/DLR-RM/BlenderProc#writing-modules)). New modules can either combine existing modules with some logic (e.g. [composite/CameraObjectSampler](composite/CameraObjectSampler)) or create completely new functionality based on the Blender API.
 
-See our [change log](change_log.md).
+
