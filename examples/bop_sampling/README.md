@@ -10,36 +10,33 @@ First make sure that you have downloaded a [BOP dataset](https://bop.felk.cvut.c
 
 In [examples/bop_sampling/config.yaml](config.yaml) add the path to your bop_toolkit clone to `sys_paths` and set the `blender_install_path` where Blender should be installed.
 
-Finally, execute in the BlenderProc main directory:  
-(replace `/path/to/bop/dataset` and `/path/to/output_dir`)
+Execute in the BlenderProc main directory:  
 
 ```
-python run.py examples/bop_sampling/config.yaml /path/to/bop/dataset /path/to/output_dir
+python run.py examples/bop_sampling/config.yaml <path_to_bop_data> examples/bop_sampling/output
 ```
-
-## Steps
-
-* Loads object models and camera intrinsics from specified BOP dataset
-* Creates a point light sampled inside a shell
-* Loops over
-    * Sample Object Poses inside a cube with collision checks
-    * Sample Camera Poses inside a shell looking at objects
-    * Renders rgb
-    * Renders instance segmentation masks
-    * Writes labels and images to compressed hdf5 files in output_dir
+* `examples/bop_sampling/config.yaml`: path to the pipeline configuration file.
+* `<path_to_bop_data>`: path to a BOP dataset
+* `examples/bop_sampling/output`: path to the output directory.
 
 ## Visualization
 
 Visualize the generated data and labels:
 ```
-python scripts/visHdf5Files.py /path/to/output_dir/0.hdf5
+python scripts/visHdf5Files.py examples/bop_sampling/output/0.hdf5
 ```
 
-Alternatively, since we generated COCO annotations, you can also visualize the generated coco_annotations.json file:
-```
-python scripts/vis_coco_annotation.py /path/to/output_dir
-``` 
+## Steps
 
+* Loads object models and camera intrinsics from specified BOP dataset: `loader.BopLoader` module.
+* Creates a point light sampled inside a shell: `lighting.LightSampler` module.
+* Loops over: `composite.CameraObjectSampler` module.
+    * Sample Object Poses inside a cube with collision checks
+    * Sample Camera Poses inside a shell looking at objects
+* Renders rgb: `renderer.RgbRenderer` module.
+* Renders instance segmentation masks: `renderer.SegMapRenderer` module.
+* Writes instance segmentation masks: `writer.CocoAnnotationsWriter` module.
+* Writes labels and images to compressed hdf5 files in output_dir: `writer.Hdf5Writer` module.
 
 ## Config file
 
@@ -66,6 +63,11 @@ Following modules handle the sampling.
 
 - `noof_cams_per_scene` after which the object poses are resampled
 - `total_noof_cams` to generate
+
+Alternatively, since we generated COCO annotations, you can also visualize the generated coco_annotations.json file:
+```
+python scripts/vis_coco_annotation.py /path/to/output_dir
+``` 
 
 ## More examples
 

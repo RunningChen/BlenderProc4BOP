@@ -60,4 +60,3 @@ Parametrize lighting.LightSampler, camera.CameraSampler, or object.ObjectPoseSam
 
 Besides parametrizing existing modules, you can also create your own modules (see [Writing Modules](https://github.com/DLR-RM/BlenderProc#writing-modules)). New modules can either combine existing modules with some logic (e.g. [composite/CameraObjectSampler](composite/CameraObjectSampler)) or create completely new functionality based on the Blender API.
 
-

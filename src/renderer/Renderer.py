@@ -47,8 +47,12 @@ class Renderer(Module):
        "stereo", "If true, renders a pair of stereoscopic images for each camera position."
        "use_alpha", "If true, the alpha channel stored in .png textures is used."
     """
+
+    DEPTH_END = 25.1
+
     def __init__(self, config):
         Module.__init__(self, config)
+        self._avoid_rendering = config.get_bool("avoid_rendering", False)
         addon_utils.enable("render_auto_tile_size")
 
     def _configure_renderer(self, default_samples=256, default_denoiser="Blender"):
@@ -150,6 +154,7 @@ class Renderer(Module):
         # Mist settings
         depth_start = self.config.get_float("depth_start", 0.1)
         depth_range = self.config.get_float("depth_range", 25.0)
+        Renderer.DEPTH_END = depth_start + depth_range
         bpy.context.scene.world.mist_settings.start = depth_start
         bpy.context.scene.world.mist_settings.depth = depth_range
         bpy.context.scene.world.mist_settings.falloff = self.config.get_string("depth_falloff", "LINEAR")
@@ -169,7 +174,7 @@ class Renderer(Module):
         links.new(render_layer_node.outputs["Mist"], mapper_node.inputs['Value'])
         # map the values 0-1 to range depth_start to depth_range
         mapper_node.inputs['To Min'].default_value = depth_start
-        mapper_node.inputs['To Max'].default_value = depth_range
+        mapper_node.inputs['To Max'].default_value = depth_start + depth_range
 
         output_file = tree.nodes.new("CompositorNodeOutputFile")
         output_file.base_path = self._determine_output_dir()
@@ -199,7 +204,8 @@ class Renderer(Module):
                                 "please load an object before invoking the renderer.")
             # As frame_end is pointing to the next free frame, decrease it by one, as blender will render all frames in [frame_start, frame_ned]
             bpy.context.scene.frame_end -= 1
-            bpy.ops.render.render(animation=True, write_still=True)
+            if not self._avoid_rendering:
+                bpy.ops.render.render(animation=True, write_still=True)
             # Revert changes
             bpy.context.scene.frame_end += 1
 
@@ -231,21 +237,9 @@ class Renderer(Module):
                     if texture_node is not None:
                         nodes = slot.material.node_tree.nodes
                         links = slot.material.node_tree.links
+                        node_connected_to_the_output, material_output = \
+                            Utility.get_node_connected_to_the_output_and_unlink_it(slot.material)
 
-
-                        output = Utility.get_nodes_with_type(nodes, 'OutputMaterial')
-                        if output and len(output) == 1:
-                            material_output = output[0]
-                        else:
-                            raise Exception("This material: {} has not one material output!".format(slot.name))
-                        # find the node, which is connected to the output
-                        node_connected_to_the_output = None
-                        for link in links:
-                            if link.to_node == material_output:
-                                node_connected_to_the_output = link.from_node
-                                # remove this link
-                                links.remove(link)
-                                break
                         if node_connected_to_the_output is not None:
                             mix_node = nodes.new(type='ShaderNodeMixShader')
 

@@ -197,7 +197,33 @@ class Utility:
                 links.remove(l)
 
         links.new(source_socket, new_node_dest_socket)
-        links.new(new_node_src_socket, dest_socket)
+        links.new(new_node_src_socket, dest_socket)\
+
+    @staticmethod
+    def get_node_connected_to_the_output_and_unlink_it(material):
+        """
+        Searches for the OutputMaterial in the given material and finds the connected node to it,
+        removes the connection between this node and the output and returns this node and the material_output
+        :param material_slot: material slot (
+        """
+        nodes = material.node_tree.nodes
+        links = material.node_tree.links
+
+        output = Utility.get_nodes_with_type(nodes, 'OutputMaterial')
+        if output and len(output) == 1:
+            material_output = output[0]
+        else:
+            raise Exception("This material: {} has not one material output!".format(material.name))
+        # find the node, which is connected to the output
+        node_connected_to_the_output = None
+        for link in links:
+            if link.to_node == material_output:
+                node_connected_to_the_output = link.from_node
+                # remove this link
+                links.remove(link)
+                break
+        return node_connected_to_the_output, material_output
+
 
     @staticmethod
     def get_nodes_with_type(nodes, node_type):
@@ -229,18 +255,21 @@ class Utility:
 
         Usage: with UndoAfterExecution():
         """
-        def __init__(self, check_point_name=None):
+        def __init__(self, check_point_name=None, perform_undo_op=True):
             if check_point_name is None:
                 check_point_name = inspect.stack()[1].filename + " - " + inspect.stack()[1].function
             self.check_point_name = check_point_name
+            self._perform_undo_op = perform_undo_op
 
         def __enter__(self):
-            bpy.ops.ed.undo_push(message="before " + self.check_point_name)
+            if self._perform_undo_op:
+                bpy.ops.ed.undo_push(message="before " + self.check_point_name)
 
         def __exit__(self, type, value, traceback):
-            bpy.ops.ed.undo_push(message="after " + self.check_point_name)
-            # The current state points to "after", now by calling undo we go back to "before"
-            bpy.ops.ed.undo()
+            if self._perform_undo_op:
+                bpy.ops.ed.undo_push(message="after " + self.check_point_name)
+                # The current state points to "after", now by calling undo we go back to "before"
+                bpy.ops.ed.undo()
 
     @staticmethod
     def build_provider(name, parameters):
@@ -354,7 +383,7 @@ class Utility:
         In .ply files only one object can saved so the list has always at most one element
 
         :param filepath: the filepath to the location where the data is stored
-        :param cached_objects: a dict of filepath to objects, which have been loaded before, to avoid reloading (the dict is not updated in this function)
+        :param cached_objects: a dict of filepath to objects, which have been loaded before, to avoid reloading (the dict is updated in this function)
         :param kwargs: all other params are handed directly to the bpy loading fct. check the corresponding documentation
         :return: a list of all newly loaded objects, in the failure case an empty list is returned
         """
@@ -371,10 +400,11 @@ class Utility:
                         if len(bpy.context.selected_objects) != 1:
                             raise Exception("The amount of objects after the copy was more than one!")
                         created_obj.append(bpy.context.selected_objects[0])
-                    cached_objects[filepath] = created_obj
                     return created_obj
                 else:
-                    return import_objects(filepath, cached_objects={}, **kwargs)
+                    loaded_objects = Utility.import_objects(filepath, cached_objects=None, **kwargs)
+                    cached_objects[filepath] = loaded_objects
+                    return loaded_objects
             else:
                 # save all selected objects
                 previously_selected_objects = set(bpy.context.selected_objects)

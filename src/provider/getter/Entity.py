@@ -3,6 +3,8 @@ import mathutils
 import re
 
 from src.main.Provider import Provider
+from src.utility.Config import Config
+
 
 class Entity(Provider):
     """ Returns a list of objects in accordance to a condition.
@@ -22,14 +24,25 @@ class Entity(Provider):
     Another more complex example:
     Here all objects which are either named Suzanne or (the name starts with Cube and belong to the category "is_cube")
         "name_of_selector": {
-            "provider": "getter.Entity"
+            "provider": "getter.Entity",
+            "index": 0,             # only returns the first match
             "conditions": [{
                 "name": "Suzanne",  # this checks if the name of the object is equal to Suzanne (treated as a regular expr.)
                 "type": "MESH"      # this will make sure that the object is a mesh
             },{
                 "name": "Cube.*",   # this checks if the name of the object starts with Cube (treated as a regular expr.)
                 "category": "is_cube" # both have to be true
-            }
+            },{
+                "inside": {         # this checks if the object is inside the bounding box defined by min and max points
+                    "min": "[-5, -5, -5]", # or use "outside" for checking whether the obj is outside of b box
+                    "max": "[5, 5, 5]"
+                },
+            },{
+                "inside": {         # alternative syntax for inside/outside, cannot be mixed with min/max vector syntax
+                    "z_min": -1,    # any object with a z position greater than -1
+                    # supported keys: [xyz]_{min,max}
+                    # missing arguments extend the bounding box to infinity in that direction
+                },
             ]
         }
 
@@ -49,7 +62,9 @@ class Entity(Provider):
     "condition", "Dict with one entry of format {attribute_name: attribute_value}. Type: dict."
     "condition/attribute_name", "Name of any valid object's attribute or custom property. Type: string."
     "condition/attribute_value", "Any value to set. Types: string, int, bool or float, list/Vector/Euler/Color."
+    "index", "If set, after the conditions are applied only the entity with the specified index is returned. Type: int"
     """
+
     def __init__(self, config):
         Provider.__init__(self, config)
 
@@ -111,6 +126,36 @@ class Entity(Provider):
                     else:
                         raise Exception("Types are not matching: %s and %s !"
                                         % (type(obj[key]), type(value)))
+                elif key == "inside" or key == "outside":
+                    conditions = Config(value)
+                    if conditions.has_param("min") and conditions.has_param("max"):
+                        if any(conditions.has_param(key) for key in
+                               ["x_min", "x_max", "y_min", "y_max", "z_min", "z_max"]):
+                            raise RuntimeError("An inside/outside condition cannot mix the min/max vector syntax with "
+                                               "the x_min/x_max/y_min/... syntax.")
+
+                        bb_min = conditions.get_vector3d("min")
+                        bb_max = conditions.get_vector3d("max")
+                        is_inside = all(bb_min[i] < obj.location[i] < bb_max[i] for i in range(3))
+                    else:
+                        if any(conditions.has_param(key) for key in ["min", "max"]):
+                            raise RuntimeError("An inside/outside condition cannot mix the min/max syntax with "
+                                               "the x_min/x_max/y_min/... syntax.")
+                        is_inside = True
+                        for axis_index in range(3):
+                            axis_name = "xyz"[axis_index]
+                            for direction in ["min", "max"]:
+                                key_name = "{}_{}".format(axis_name, direction)
+                                if key_name in value:
+                                    real_position = obj.location[axis_index]
+                                    border_position = float(value[key_name])
+                                    if (direction == "max" and real_position > border_position) or (
+                                            direction == "min" and real_position < border_position):
+                                        is_inside = False
+
+                    if (key == "inside" and not is_inside) or (key == "outside" and is_inside):
+                        select_object = False
+                        break
                 else:
                     select_object = False
                     break
@@ -133,4 +178,8 @@ class Entity(Provider):
         else:
             # only one condition was given, treat it as and condition
             objects = self.perform_and_condition_check(conditions, [])
+
+        if self.config.has_param("index"):
+            objects = [objects[self.config.get_int("index")]]
+
         return objects

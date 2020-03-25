@@ -26,11 +26,11 @@ class BopLoader(Module):
        :header: "Parameter", "Description"
 
        "bop_dataset_path", "Full path to a specific bop dataset e.g. /home/user/bop/tless"
-       "mm2m", "Specify whether to convert poses and models to meters"
-       "split", "Optionally, test or val split depending on BOP dataset"
+       "mm2m", "Specify whether to convert poses and models to meters (default: False)"
+       "split", "Optionally, test or val split depending on BOP dataset (default: test)"
        "scene_id", "Optionally, specify BOP dataset scene to synthetically replicate. (default = -1: No scene is replicated, only BOP Objects are loaded)"
        "obj_ids", "Iff scene_id is not specified (scene_id: -1): List of object ids to load (default = -1: All objects from the given BOP dataset)"
-       "model_type", "Optionally, type of BOP model, e.g. reconst, cad or eval"
+       "model_type", "Optionally, specify type of BOP model, e.g. reconst, cad or eval"
     """
 
     def __init__(self, config):
@@ -40,6 +40,7 @@ class BopLoader(Module):
                 sys.path.append(sys_path)
         
     def run(self):
+        """ Load BOP data """ 
         
         bop_dataset_path = self.config.get_string("bop_dataset_path")
         scene_id = self.config.get_int("scene_id", -1)
@@ -47,7 +48,7 @@ class BopLoader(Module):
         split = self.config.get_string("split", "test")
         model_type = self.config.get_string("model_type", "")
         cam_type = self.config.get_string("cam_type", "")
-        mm2m = 0.001 if self.config.get_bool("mm2m", False) else 1
+        scale = 0.001 if self.config.get_bool("mm2m", False) else 1
         datasets_path = os.path.dirname(bop_dataset_path)
         dataset = os.path.basename(bop_dataset_path)
         
@@ -80,65 +81,107 @@ class BopLoader(Module):
         cam['loaded_resolution'] = bpy.context.scene.render.resolution_x, bpy.context.scene.render.resolution_y 
         cam['loaded_intrinsics'] = cam_p['K'] # load default intrinsics from camera.json
         
-        dummy_config = Config({})
-        cm = CameraModule(dummy_config)
-        cm._set_cam_intrinsics(cam, dummy_config)
+        config = Config({})
+        camera_module = CameraModule(config)
+        camera_module._set_cam_intrinsics(cam, config)
 
         #only load all/selected objects here, use other modules for setting poses, e.g. camera.CameraSampler / object.ObjectPoseSampler
         if scene_id == -1:
             obj_ids = obj_ids if obj_ids else model_p['obj_ids']
             for obj_id in obj_ids:
-                self._load_mesh(obj_id, model_p, mm2m=mm2m)
+                self._load_mesh(obj_id, model_p, scale=scale)
         # replicate scene: load scene objects, object poses, camera intrinsics and camera poses
         else:
             sc_gt = inout.load_scene_gt(split_p['scene_gt_tpath'].format(**{'scene_id':scene_id}))
             sc_camera = inout.load_json(split_p['scene_camera_tpath'].format(**{'scene_id':scene_id}))
-
+            
             for i, (cam_id, insts) in enumerate(sc_gt.items()):
 
-                cam_K = np.array(sc_camera[str(cam_id)]['cam_K']).reshape(3,3)
-
-                cam_H_m2c_ref = np.eye(4)
-                cam_H_m2c_ref[:3,:3] = np.array(insts[0]['cam_R_m2c']).reshape(3,3) 
-                cam_H_m2c_ref[:3, 3] = np.array(insts[0]['cam_t_m2c']).reshape(3) * mm2m
+                cam_K, cam_H_m2c_ref = self._get_ref_cam_extrinsics_intrinsics(sc_camera, cam_id, 
+                                                                                    insts, scale)
 
                 if i == 0:
                     # define world = first camera
                     cam_H_m2w_ref = cam_H_m2c_ref.copy()
                     
+                    # load scene objects
                     for inst in insts:
-                        cur_obj = self._load_mesh(inst['obj_id'], model_p, mm2m=mm2m)
-
-                        cam_H_m2c = np.eye(4)
-                        cam_H_m2c[:3,:3] = np.array(inst['cam_R_m2c']).reshape(3,3) 
-                        cam_H_m2c[:3, 3] = np.array(inst['cam_t_m2c']).reshape(3) * mm2m
-
-                        # world = camera @ i=0
-                        cam_H_m2w = cam_H_m2c
-                        print('-----------------------------')
-                        print("Model: {}".format(cam_H_m2w))
-                        print('-----------------------------')
-
-                        cur_obj.matrix_world = Matrix(cam_H_m2w)
-                        
-                cam_H_c2w = np.dot(cam_H_m2w_ref, np.linalg.inv(cam_H_m2c_ref))
-
-                print('-----------------------------')
-                print("Cam: {}".format(cam_H_c2w))
-                print('-----------------------------')
-
-                # transform from OpenCV to blender coords
-                cam_H_c2w @= Matrix.Rotation(math.radians(180), 4, "X")
-                cam_H_c2w_list = list(cam_H_c2w.flatten())
-
-                config = Config({"cam2world_matrix": cam_H_c2w_list})
-                cm._set_cam_intrinsics(cam, config)
-                cm._set_cam_extrinsics(cam_ob, config)
+                        cur_obj = self._load_mesh(inst['obj_id'], model_p)
+                        self.set_object_pose(cur_obj, inst, scale)
+                
+                cam_H_c2w = self._compute_camera_to_world_trafo(cam_H_m2w_ref, cam_H_m2c_ref)
+                
+                #set camera intrinsics and extrinsics 
+                config = Config({"cam2world_matrix": list(cam_H_c2w.flatten()), 
+                                 "camK": list(cam_K.flatten())})
+                camera_module._set_cam_intrinsics(cam, config)
+                camera_module._set_cam_extrinsics(cam_ob, config)
 
                 # Store new cam pose as next frame
                 frame_id = bpy.context.scene.frame_end
-                cm._insert_key_frames(cam, cam_ob, frame_id)
+                camera_module._insert_key_frames(cam, cam_ob, frame_id)
                 bpy.context.scene.frame_end = frame_id + 1                
+
+
+    def _compute_camera_to_world_trafo(self, cam_H_m2w_ref, cam_H_m2c_ref):
+        """ Returns camera to world transformation in blender coords.
+
+        :param cam_H_m2c_ref (ndarray): (4x4) homog trafo from object to world coords 
+        :param cam_H_m2w_ref (ndarray): (4x4) ndarray homog trafo from object to camera coords
+        :return: cam_H_c2w (Matrix): (4x4) homog trafo from camera to world coords
+        """
+
+        cam_H_c2w = np.dot(cam_H_m2w_ref, np.linalg.inv(cam_H_m2c_ref))
+
+        print('-----------------------------')
+        print("Cam: {}".format(cam_H_c2w))
+        print('-----------------------------')
+
+        # transform from OpenCV to blender coords
+        cam_H_c2w = cam_H_c2w @ Matrix.Rotation(math.radians(180), 4, "X")
+
+        return cam_H_c2w
+
+    def set_object_pose(self, cur_obj, inst, scale):
+        """ Set object pose for current obj
+
+        :param cur_obj: blender object
+        :param inst (dict): instance from BOP scene_gt file  
+        :param scale (int): factor to transform set pose in mm or meters
+        """
+
+        cam_H_m2c = np.eye(4)
+        cam_H_m2c[:3,:3] = np.array(inst['cam_R_m2c']).reshape(3,3) 
+        cam_H_m2c[:3, 3] = np.array(inst['cam_t_m2c']).reshape(3) * scale
+
+        # world = camera @ i=0
+        cam_H_m2w = cam_H_m2c
+
+        print('-----------------------------')
+        print("Model: {}".format(cam_H_m2w))
+        print('-----------------------------')
+
+        cur_obj.matrix_world = Matrix(cam_H_m2w)
+        cur_obj.scale = Vector((scale, scale, scale))
+
+
+    def _get_ref_cam_extrinsics_intrinsics(self, sc_camera, cam_id, insts, scale):
+        """ Get camK and transformation from object instance 0 to camera cam_id as reference
+        :param sc_camera (dict): BOP scene_camera file
+        :param cam_id (int): BOP camera id 
+        :param inst (dict): instance from BOP scene_gt file  
+        :param scale (int): factor to transform get pose in mm or meters
+        :return camK (ndarray): loaded camera matrix
+        :return cam_H_m2c_ref (ndarray): loaded object to camera transformation 
+        """
+
+        cam_K = np.array(sc_camera[str(cam_id)]['cam_K']).reshape(3,3)
+
+        cam_H_m2c_ref = np.eye(4)
+        cam_H_m2c_ref[:3,:3] = np.array(insts[0]['cam_R_m2c']).reshape(3,3) 
+        cam_H_m2c_ref[:3, 3] = np.array(insts[0]['cam_t_m2c']).reshape(3) * scale
+
+        return (cam_K, cam_H_m2c_ref)
 
     def _try_duplicate_obj(self, model_path):
         """ If object with given model_path has already been loaded, duplicate this object
@@ -154,13 +197,12 @@ class BopLoader(Module):
                 return True
         return False
 
-    def _load_mesh(self, obj_id, model_p, mm2m=1):
+    def _load_mesh(self, obj_id, model_p, scale = 1):
         """ Loads or copies BOP mesh and sets category_id
 
         :param obj_id: The obj_id of the BOP Object (int)
         :param model_p: model parameters defined in dataset_params.py in bop_toolkit
-        :param mm2m: "Specify whether to convert object scale from mm to meter"
-
+        :return 
         """
 
         model_path = model_p['model_tpath'].format(**{'obj_id': obj_id})
@@ -172,7 +214,7 @@ class BopLoader(Module):
             bpy.ops.import_mesh.ply(filepath = model_path)
 
         cur_obj = bpy.context.selected_objects[-1]
-        cur_obj.scale = Vector((mm2m, mm2m, mm2m))
+        cur_obj.scale = Vector((scale, scale, scale))
         cur_obj['category_id'] = obj_id
         cur_obj['model_path'] = model_path
 
@@ -185,7 +227,7 @@ class BopLoader(Module):
         """ Loads / defines materials, e.g. vertex colors 
         
         :param object: The object to use.
-        return: material with vertex color (bpy.data.materials)
+        :return: material with vertex color (bpy.data.materials)
 
         """
 
@@ -193,7 +235,7 @@ class BopLoader(Module):
         
         if mat is None:
             # create material
-            mat = bpy.data.materials.new(name="Material")
+            mat = bpy.data.materials.new(name="bop_vertex_col_material")
 
         mat.use_nodes = True
 
@@ -219,4 +261,4 @@ class BopLoader(Module):
 
         principled_node = nodes.get("Principled BSDF")
 
-        links.new(attr_node.outputs['Color'], principled_node.inputs[0])
+        links.new(attr_node.outputs['Color'], principled_node.inputs['Base Color'])

@@ -32,7 +32,7 @@ class PhysicsPositioning(Module):
         self.collision_mesh_source = self.config.get_string('collision_mesh_source', 'FINAL')
         self.steps_per_sec = self.config.get_int("steps_per_sec", 60)
         self.solver_iters = self.config.get_int("solver_iters", 10)
-        self.mass_scaling = self.config.get_string("mass_scaling", False)
+        self.mass_scaling = self.config.get_bool("mass_scaling", False)
         self.mass_factor = self.config.get_float("mass_factor", 1)
 
     def run(self):
@@ -137,7 +137,7 @@ class PhysicsPositioning(Module):
         objects_poses = {}
         for obj in get_all_mesh_objects():
             if obj.rigid_body.type == 'ACTIVE':
-                location = bpy.context.scene.objects[obj.name].matrix_world.translation
+                location = bpy.context.scene.objects[obj.name].matrix_world.translation.copy()
                 rotation = mathutils.Vector(bpy.context.scene.objects[obj.name].matrix_world.to_euler())
                 objects_poses.update({obj.name: {'location': location, 'rotation': rotation}})
 

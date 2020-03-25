@@ -14,6 +14,14 @@ python run.py examples/replica-dataset/config.yaml <path_to_the_replica_data_fol
 * `<path_to_the_replica_data_folder>`: Path to the replica dataset directory.
 * `examples/replica-dataset/output`: path to the output directory.
 
+## Visualization
+
+Visualize the generated data:
+
+```
+python scripts/visHdf5Files.py example/replica-dataset/0.hdf5
+```
+
 ## Steps
 
 * Load replica room: `loader.ReplicaLoader` module.
@@ -103,14 +111,26 @@ Note that `"data_set_name": "office_1"` is a replica room you want to render. Th
 ```
 
 `camera.ReplicaCameraSampler` samples multiple camera poses per every imported room with camera-object collision check and obstacle check.
+## Material Manipulator 
 
-## Visualization
+```yaml
+{
+  "module": "materials.MaterialManipulator",
+  "config": {
+    "selector": {
+      "provider": "getter.Material",
+      "conditions": {
+        "name": "ReplicaMaterial"
+      }
+    },
+    change_to_vertex_color: "Col"
+  }
+},
+``` 
+The `materials.Manipulator` changes the material of the Replica objects so that the vertex color is renderer, this makes it possible to render colors on Replica scenes.
+##### Important: This does not mean that we load the complex texture files, we only use the low res vertex color for color rendering.
 
-Visualize the generated data:
-
-```
-python scripts/visHdf5Files.py example/replica-dataset/0.hdf5
-```
+If you are in need of high-res color images, do we propose that you, yourself can try to implement the texture importer for the replica dataset.
 
 ## More examples
 

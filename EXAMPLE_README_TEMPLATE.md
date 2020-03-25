@@ -1,6 +1,6 @@
 # Name of the example
 
-![](example_rendering.png)
+Place a sample rendering here.
 
 One-two sentences explaining the main focus of the example, e.g. new module/feature we are introducing.
 
@@ -15,6 +15,14 @@ python run.py ...
 * `examples/basic/config.yaml`: explanation
 * `examples/basic/camera_positions`: explanation
 * ...
+
+## Visualization
+
+Visualize the generated data if it is stored in a container.
+
+```
+python scripts/visHdf5Files.py path/to/output/0.hdf5
+```
 
 ## Steps
 
@@ -40,16 +48,8 @@ Always end the description of the config section with short description of the o
 ...
 
 
-## Visualization
-
-Visualize the generated data:
-
-```
-python scripts/visHdf5Files.py path/to/output/0.hdf5
-```
-
 ## More examples
 
-Finish with some recommendation about other examples that can help expand on this config file and complement this example:
+Optionally, finish with some recommendation about other examples that can help expand on this config file and complement this example:
 * one: more on rendering
 * or two examples: more on samplers
